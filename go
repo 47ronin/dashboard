@@ -18,7 +18,7 @@
 #
 # ----
 #
-# ./go script: unified development environment interface 
+# ./go script: unified development environment interface
 #
 # Inspired by:
 # http://www.thoughtworks.com/insights/blog/praise-go-script-part-i
@@ -26,23 +26,6 @@
 #
 # Author: Mike Bland (michael.bland@gsa.gov)
 # Date:   2015-01-10
-
-MIN_VERSION = "2.1.5"
-
-unless RUBY_VERSION >= MIN_VERSION
-  puts <<EOF
-
-*** ABORTING: Unsupported Ruby version ***
-
-Ruby version #{MIN_VERSION} or greater is required to work with the Hub, but
-this Ruby is version #{RUBY_VERSION}. Consider using a version manager such as
-rbenv (https://github.com/sstephenson/rbenv) or rvm (https://rvm.io/)
-to install a Ruby version specifically for Hub development.
-
-EOF
-  exit 1
-end
-
 def exec_cmd(cmd)
   exit $?.exitstatus unless system(cmd)
 end
@@ -55,48 +38,77 @@ def init
     exec_cmd 'gem install bundler'
     puts "Bundler installed; installing gems"
   end
-  exec_cmd 'bundle_install'
+  exec_cmd 'bundle install'
+  install_node_modules
 end
 
-def update_gems
-  exec_cmd 'bundle update'
+def install_gems
+  exec_cmd 'bundle install'
   exec_cmd 'git add Gemfile.lock'
 end
 
+def install_node_modules
+  exec_cmd 'npm install'
+end
+
 def update_data
-  exec_cmd 'cd _data && ./import-public.rb'
+  exec_cmd 'bundle exec ruby _data/import-public.rb'
 end
 
 def serve
-  exec 'bundle exec jekyll serve --trace'
+  puts 'Updating from the team API'
+  update_data
+  exec_cmd 'npm run watchify &'
+  exec_cmd 'bundle exec jekyll serve --trace'
 end
 
 def build
   puts 'Building the site...'
+  exec_cmd('npm run browserify')
   exec_cmd('bundle exec jekyll b --trace')
   puts 'Site built successfully.'
 end
 
 def ci_build
   puts 'Building the site...'
-  build
+  exec_cmd('npm run browserify')
+  exec_cmd('bundle exec jekyll b --trace')
+  exec_cmd('bundle exec jekyll serve --detach')
+  puts 'Testing the build'
+  ci_test 
+  puts 'Killing Jekyll'
+  exec_cmd('pkill -f jekyll')
   puts 'Done!'
 end
 
-def deploy(deploy_commands)
+def deploy
+  puts 'Pulling the latest changes...'
+  exec_cmd('git pull')
   puts 'Building the site...'
-  exec_cmd(['git pull'].concat(deploy_commands).join(' && '))
   exec_cmd('/opt/install/rbenv/shims/bundle exec jekyll b --trace')
   puts 'Site built successfully.'
+  require 'time'
+  puts Time.now()
+end
+
+def test_build
+  exec_cmd 'rspec'
+end
+
+def ci_test
+  exec_cmd 'bundle exec rspec --tag "~type:missing"'
 end
 
 COMMANDS = {
   :init => 'Set up the Hub dev environment',
-  :update_gems => 'Execute Bundler to update gem set',
+  :install_gems => 'Execute Bundler to update gem set',
+  :install_node_modules => 'Install Node dependencies',
   :update_data => 'Updates data files from data-private',
   :serve => 'Serves the site at localhost:4000',
   :build => 'Builds the site',
   :ci_build => 'Builds the site for a CI system',
+  :deploy => 'Pulls the latest changes and rebuilds the site',
+  :test_build => 'Tests the build generated the correct number of project pages.'
   }
 
 def usage(exitstatus: 0)
